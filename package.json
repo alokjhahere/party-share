@@ -1,0 +1,14 @@
+{
+  "name": "party-share-monorepo",
+  "private": true,
+  "workspaces": [
+    "mobile",
+    "backend",
+    "database"
+  ],
+  "scripts": {
+    "backend:dev": "npm run dev -w backend",
+    "db:generate": "npm run generate -w database",
+    "db:push": "npm run db:push -w database"
+  }
+}

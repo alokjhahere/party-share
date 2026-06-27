@@ -1,0 +1,40 @@
+# Dependency directories
+node_modules/
+
+# Environment variables (CRITICAL: Do not upload credentials)
+.env
+.env.local
+.env.*.local
+
+# Build outputs
+dist/
+build/
+bin/
+
+# Multer uploads
+backend/uploads/
+
+# Android build outputs and caches
+mobile/android/app/build/
+mobile/android/.gradle/
+mobile/android/local.properties
+mobile/android/app/debug.keystore
+
+# iOS build outputs
+mobile/ios/Pods/
+mobile/ios/build/
+.watchmanconfig
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# IDEs
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
