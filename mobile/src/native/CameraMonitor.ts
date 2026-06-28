@@ -95,3 +95,37 @@ export function subscribeToPhotoDetections(callback: (event: PhotoDetectedEvent)
     subscription.remove();
   };
 }
+
+// Save a remote photo to the device gallery
+export async function savePhotoToLocalGallery(imageUrl: string): Promise<boolean> {
+  if (Platform.OS !== 'android') return false;
+  try {
+    const result = await CameraMonitor.saveImageToGallery(imageUrl);
+    console.log('Saved photo to native gallery:', result);
+    return true;
+  } catch (error) {
+    console.error('Failed to save photo to native gallery:', error);
+    return false;
+  }
+}
+
+// Save the auto-save configuration preference
+export async function setAutoSavePreference(enabled: boolean): Promise<void> {
+  if (Platform.OS !== 'android') return;
+  try {
+    await CameraMonitor.setAutoSavePreference(enabled);
+  } catch (error) {
+    console.error('Failed to save auto-save preference:', error);
+  }
+}
+
+// Get the saved auto-save configuration preference
+export async function getAutoSavePreference(): Promise<boolean> {
+  if (Platform.OS !== 'android') return false;
+  try {
+    return await CameraMonitor.getAutoSavePreference();
+  } catch (error) {
+    console.error('Failed to load auto-save preference:', error);
+    return false;
+  }
+}

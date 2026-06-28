@@ -1,8 +1,13 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, FlatList, Image, ActivityIndicator, Dimensions, StyleSheet } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, TouchableOpacity, FlatList, Image, ActivityIndicator, Dimensions, StyleSheet, Modal, TouchableWithoutFeedback, Alert, Switch } from 'react-native';
 import { io } from 'socket.io-client';
 import { globalStyles, COLORS } from '../styles';
 import { BACKEND_URL } from '../config';
+import { 
+  savePhotoToLocalGallery, 
+  setAutoSavePreference, 
+  getAutoSavePreference 
+} from '../native/CameraMonitor';
 
 const { width } = Dimensions.get('window');
 const COLUMN_WIDTH = width / 3;
@@ -23,6 +28,88 @@ export const GalleryScreen: React.FC<GalleryScreenProps> = ({ eventId, onGoBack 
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
+
+  // Auto-save and download states
+  const [autoSaveEnabled, setAutoSaveEnabled] = useState(false);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedPhotoIds, setSelectedPhotoIds] = useState<string[]>([]);
+  const [savingSingle, setSavingSingle] = useState(false);
+  const [downloadingAll, setDownloadingAll] = useState(false);
+  const [downloadingSelected, setDownloadingSelected] = useState(false);
+
+  // Ref to always access the latest autoSaveEnabled value in the socket listener
+  const autoSaveEnabledRef = useRef(autoSaveEnabled);
+  useEffect(() => {
+    autoSaveEnabledRef.current = autoSaveEnabled;
+  }, [autoSaveEnabled]);
+
+  // Load saved preference on mount
+  useEffect(() => {
+    const loadPref = async () => {
+      const pref = await getAutoSavePreference();
+      setAutoSaveEnabled(pref);
+    };
+    loadPref();
+  }, []);
+
+  const handleToggleAutoSave = async (value: boolean) => {
+    setAutoSaveEnabled(value);
+    await setAutoSavePreference(value);
+  };
+
+  const handleSavePhoto = async () => {
+    if (!selectedPhoto) return;
+    setSavingSingle(true);
+    const success = await savePhotoToLocalGallery(selectedPhoto);
+    setSavingSingle(false);
+    if (success) {
+      Alert.alert('Saved!', 'The photo has been saved to your gallery inside the "PartyShare" folder.');
+    } else {
+      Alert.alert('Error', 'Failed to save the photo to your gallery.');
+    }
+  };
+
+  const handleDownloadAll = async () => {
+    if (photos.length === 0) return;
+    setDownloadingAll(true);
+    let successCount = 0;
+    for (const photo of photos) {
+      const url = `${BACKEND_URL}/uploads/${photo.imagePath}`;
+      const success = await savePhotoToLocalGallery(url);
+      if (success) successCount++;
+    }
+    setDownloadingAll(false);
+    Alert.alert('Download Complete', `Saved ${successCount} of ${photos.length} photos to your gallery folder "PartyShare".`);
+  };
+
+  const handleDownloadSelected = async () => {
+    if (selectedPhotoIds.length === 0) return;
+    setDownloadingSelected(true);
+    let successCount = 0;
+    for (const id of selectedPhotoIds) {
+      const photo = photos.find(p => p.id === id);
+      if (photo) {
+        const url = `${BACKEND_URL}/uploads/${photo.imagePath}`;
+        const success = await savePhotoToLocalGallery(url);
+        if (success) successCount++;
+      }
+    }
+    setDownloadingSelected(false);
+    setSelectedPhotoIds([]);
+    setSelectMode(false);
+    Alert.alert('Download Complete', `Successfully saved ${successCount} of ${selectedPhotoIds.length} selected photos.`);
+  };
+
+  const handleToggleSelectPhoto = (photoId: string) => {
+    setSelectedPhotoIds((prev) => {
+      if (prev.includes(photoId)) {
+        return prev.filter((id) => id !== photoId);
+      } else {
+        return [...prev, photoId];
+      }
+    });
+  };
 
   // Setup Socket.IO subscription for new photo events
   useEffect(() => {
@@ -42,6 +129,13 @@ export const GalleryScreen: React.FC<GalleryScreenProps> = ({ eventId, onGoBack 
         if (prev.some((p) => p.id === newPhoto.id)) return prev;
         return [newPhoto, ...prev];
       });
+
+      // Auto-save if enabled
+      if (autoSaveEnabledRef.current) {
+        const url = `${BACKEND_URL}/uploads/${newPhoto.imagePath}`;
+        console.log('Auto-saving new incoming photo:', url);
+        savePhotoToLocalGallery(url);
+      }
     });
 
     socket.on('disconnect', () => {
@@ -90,16 +184,80 @@ export const GalleryScreen: React.FC<GalleryScreenProps> = ({ eventId, onGoBack 
 
   return (
     <View style={[globalStyles.container, { paddingHorizontal: 0 }]}>
-      {/* Header and Back controls */}
+      {/* Header and controls */}
       <View style={{ paddingHorizontal: 24, paddingTop: 16 }}>
-        <Text style={globalStyles.header}>Event Gallery</Text>
-        <Text style={globalStyles.subtitle}>
-          Real-time photo stream. Photos appear automatically.
-        </Text>
+        {selectMode ? (
+          <View>
+            <Text style={globalStyles.header}>Selecting Photos</Text>
+            <Text style={globalStyles.subtitle}>
+              {selectedPhotoIds.length} photo{selectedPhotoIds.length !== 1 ? 's' : ''} selected
+            </Text>
+            <View style={{ flexDirection: 'row', gap: 10, marginVertical: 8 }}>
+              <TouchableOpacity 
+                style={[globalStyles.button, { flex: 1, height: 44, marginVertical: 0 }]} 
+                onPress={handleDownloadSelected}
+                disabled={selectedPhotoIds.length === 0 || downloadingSelected}
+              >
+                {downloadingSelected ? (
+                  <ActivityIndicator color="#ffffff" size="small" />
+                ) : (
+                  <Text style={globalStyles.buttonText}>Download ({selectedPhotoIds.length})</Text>
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[globalStyles.buttonSecondary, { flex: 1, height: 44, marginVertical: 0 }]} 
+                onPress={() => {
+                  setSelectMode(false);
+                  setSelectedPhotoIds([]);
+                }}
+              >
+                <Text style={globalStyles.buttonSecondaryText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : (
+          <View>
+            <Text style={globalStyles.header}>Event Gallery</Text>
+            <Text style={globalStyles.subtitle}>
+              Real-time photo stream. Photos appear automatically.
+            </Text>
 
-        <TouchableOpacity style={[globalStyles.buttonSecondary, { marginVertical: 8 }]} onPress={onGoBack}>
-          <Text style={globalStyles.buttonSecondaryText}>Back to Dashboard</Text>
-        </TouchableOpacity>
+            <TouchableOpacity style={[globalStyles.buttonSecondary, { marginVertical: 8 }]} onPress={onGoBack}>
+              <Text style={globalStyles.buttonSecondaryText}>Back to Dashboard</Text>
+            </TouchableOpacity>
+
+            <View style={{ flexDirection: 'row', gap: 10, marginBottom: 8 }}>
+              <TouchableOpacity 
+                style={[globalStyles.button, { flex: 1, height: 40, marginVertical: 0 }]} 
+                onPress={() => setSelectMode(true)}
+                disabled={photos.length === 0}
+              >
+                <Text style={globalStyles.buttonText}>Select Photos</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[globalStyles.buttonSecondary, { flex: 1, height: 40, marginVertical: 0 }]} 
+                onPress={handleDownloadAll}
+                disabled={photos.length === 0 || downloadingAll}
+              >
+                {downloadingAll ? (
+                  <ActivityIndicator color={COLORS.primary} size="small" />
+                ) : (
+                  <Text style={globalStyles.buttonSecondaryText}>Download All</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+
+            <View style={localStyles.settingsRow}>
+              <Text style={localStyles.settingsText}>Auto-save new photos to gallery</Text>
+              <Switch
+                value={autoSaveEnabled}
+                onValueChange={handleToggleAutoSave}
+                trackColor={{ false: '#767577', true: COLORS.primary }}
+                thumbColor={autoSaveEnabled ? '#ffffff' : '#f4f3f4'}
+              />
+            </View>
+          </View>
+        )}
       </View>
 
       {error && (
@@ -116,15 +274,39 @@ export const GalleryScreen: React.FC<GalleryScreenProps> = ({ eventId, onGoBack 
           keyExtractor={(item) => item.id}
           numColumns={3}
           contentContainerStyle={{ flexGrow: 1, paddingVertical: 12 }}
-          renderItem={({ item }) => (
-            <View style={localStyles.imageContainer}>
-              <Image
-                source={{ uri: `${BACKEND_URL}/uploads/${item.imagePath}` }}
-                style={localStyles.image}
-                resizeMode="cover"
-              />
-            </View>
-          )}
+          renderItem={({ item }) => {
+            const isSelected = selectedPhotoIds.includes(item.id);
+            return (
+              <TouchableOpacity
+                style={localStyles.imageContainer}
+                onPress={() => {
+                  if (selectMode) {
+                    handleToggleSelectPhoto(item.id);
+                  } else {
+                    setSelectedPhoto(`${BACKEND_URL}/uploads/${item.imagePath}`);
+                  }
+                }}
+                activeOpacity={0.8}
+              >
+                <Image
+                  source={{ uri: `${BACKEND_URL}/uploads/${item.imagePath}` }}
+                  style={[
+                    localStyles.image,
+                    isSelected && { borderColor: COLORS.primary, borderWidth: 3 }
+                  ]}
+                  resizeMode="cover"
+                />
+                {selectMode && (
+                  <View style={[
+                    localStyles.checkbox,
+                    isSelected && { backgroundColor: COLORS.primary }
+                  ]}>
+                    {isSelected && <Text style={{ color: '#ffffff', fontSize: 10, fontWeight: 'bold' }}>✓</Text>}
+                  </View>
+                )}
+              </TouchableOpacity>
+            );
+          }}
           ListEmptyComponent={
             <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 40, marginTop: 60 }}>
               <Text style={{ color: COLORS.textSecondary, fontSize: 16, textAlign: 'center', fontWeight: '500' }}>
@@ -137,6 +319,45 @@ export const GalleryScreen: React.FC<GalleryScreenProps> = ({ eventId, onGoBack 
           }
         />
       )}
+
+      {/* Full-screen Photo Viewer Modal */}
+      <Modal
+        visible={!!selectedPhoto}
+        transparent={true}
+        onRequestClose={() => setSelectedPhoto(null)}
+        animationType="fade"
+      >
+        <TouchableWithoutFeedback onPress={() => setSelectedPhoto(null)}>
+          <View style={localStyles.modalContainer}>
+            <View style={localStyles.modalContent}>
+              {selectedPhoto && (
+                <Image
+                  source={{ uri: selectedPhoto }}
+                  style={localStyles.fullImage}
+                  resizeMode="contain"
+                />
+              )}
+              <TouchableOpacity
+                style={localStyles.closeButton}
+                onPress={() => setSelectedPhoto(null)}
+              >
+                <Text style={localStyles.closeButtonText}>✕ Close</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={localStyles.saveButton}
+                onPress={handleSavePhoto}
+                disabled={savingSingle}
+              >
+                {savingSingle ? (
+                  <ActivityIndicator color="#ffffff" size="small" />
+                ) : (
+                  <Text style={localStyles.saveButtonText}>📥 Save to Gallery</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
     </View>
   );
 };
@@ -154,5 +375,85 @@ const localStyles = StyleSheet.create({
     backgroundColor: COLORS.card,
     borderWidth: 1,
     borderColor: COLORS.border,
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.95)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+  },
+  fullImage: {
+    width: '95%',
+    height: '85%',
+  },
+  closeButton: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  closeButtonText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  settingsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: COLORS.card,
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    marginTop: 8,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  settingsText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  checkbox: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: '#ffffff',
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  saveButton: {
+    position: 'absolute',
+    bottom: 50,
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 30,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  saveButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
 });

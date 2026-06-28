@@ -155,10 +155,13 @@ export const GuestScreen: React.FC<GuestScreenProps> = ({
           cameraType={CameraType.Back}
           scanBarcode={true}
           onReadCode={handleBarcodeScan}
-          showFrame={true}
-          laserColor={COLORS.primary}
-          frameColor={COLORS.border}
+          showFrame={false}
         />
+        {/* Custom JS Overlay Frame */}
+        <View style={localStyles.overlayContainer} pointerEvents="none">
+          <View style={localStyles.overlaySquare} />
+          <Text style={localStyles.overlayText}>Align QR code inside the box</Text>
+        </View>
         <TouchableOpacity
           style={localStyles.closeScannerButton}
           onPress={() => setShowScanner(false)}
@@ -309,5 +312,28 @@ const localStyles = StyleSheet.create({
     paddingVertical: 16,
     borderRadius: 12,
     alignItems: 'center',
+  },
+  overlayContainer: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.25)',
+  },
+  overlaySquare: {
+    width: 260,
+    height: 260,
+    borderWidth: 3,
+    borderColor: COLORS.primary,
+    borderRadius: 16,
+    backgroundColor: 'transparent',
+  },
+  overlayText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
+    marginTop: 24,
+    textShadowColor: 'rgba(0, 0, 0, 0.75)',
+    textShadowOffset: { width: -1, height: 1 },
+    textShadowRadius: 10,
   },
 });
