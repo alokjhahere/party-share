@@ -19,10 +19,12 @@ interface HostScreenProps {
 export const HostScreen: React.FC<HostScreenProps> = ({ eventId, onNavigateToGallery, onGoBack }) => {
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [loading, setLoading] = useState(true);
+  const [eventName, setEventName] = useState('Loading Event...');
+  const [isActive, setIsActive] = useState(true);
 
   // Setup background camera monitoring for the Host
   useEffect(() => {
-    if (!eventId) return;
+    if (!eventId || !isActive) return;
 
     console.log('Starting Host camera monitoring for event:', eventId);
     startCameraMonitoring(eventId, BACKEND_URL);
@@ -37,7 +39,7 @@ export const HostScreen: React.FC<HostScreenProps> = ({ eventId, onNavigateToGal
       stopCameraMonitoring();
       unsubscribe();
     };
-  }, [eventId]);
+  }, [eventId, isActive]);
 
   // Poll for participants list every 5 seconds since Socket.IO real-time join updates aren't active yet
   useEffect(() => {
@@ -51,6 +53,8 @@ export const HostScreen: React.FC<HostScreenProps> = ({ eventId, onNavigateToGal
         }
         const data = await response.json();
         if (active) {
+          setEventName(data.name || 'Hosting Event');
+          setIsActive(data.isActive !== undefined ? data.isActive : true);
           setParticipants(data.participants || []);
           setLoading(false);
         }
@@ -73,6 +77,59 @@ export const HostScreen: React.FC<HostScreenProps> = ({ eventId, onNavigateToGal
     Alert.alert('Event ID', eventId);
   };
 
+  const handleEndEvent = () => {
+    Alert.alert(
+      'End Event',
+      'Are you sure you want to end this event? Auto-upload of new photos will stop for all guests.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'End Event',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const response = await fetch(`${BACKEND_URL}/api/events/${eventId}/end`, {
+                method: 'POST',
+              });
+              if (!response.ok) throw new Error('Failed to end event');
+              setIsActive(false);
+              Alert.alert('Event Ended', 'Automatic uploads are now disabled.');
+            } catch (err) {
+              Alert.alert('Error', 'Could not reach backend to end the event.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleDeleteEvent = () => {
+    Alert.alert(
+      'DELETE ALL DATA',
+      'WARNING: This will permanently delete the event and all associated photos from the server. This cannot be undone. Proceed?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete All Data',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const response = await fetch(`${BACKEND_URL}/api/events/${eventId}`, {
+                method: 'DELETE',
+              });
+              if (!response.ok) throw new Error('Failed to delete event');
+              Alert.alert('Success', 'Event and photo data have been deleted.', [
+                { text: 'OK', onPress: onGoBack }
+              ]);
+            } catch (err) {
+              Alert.alert('Error', 'Could not reach backend to delete data.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   return (
     <View style={globalStyles.container}>
       <FlatList
@@ -81,14 +138,20 @@ export const HostScreen: React.FC<HostScreenProps> = ({ eventId, onNavigateToGal
         contentContainerStyle={{ paddingVertical: 20, alignItems: 'center' }}
         ListHeaderComponent={
           <View style={{ alignItems: 'center', width: '100%' }}>
-            <Text style={globalStyles.header}>Host Dashboard</Text>
+            <Text style={globalStyles.header}>{eventName}</Text>
             <Text style={globalStyles.subtitle}>
-              Share this QR code with guests to let them join your event.
+              Host Dashboard (ID: {eventId})
             </Text>
 
-            <View style={globalStyles.badge}>
-              <Text style={globalStyles.badgeText}>● Live Monitoring Active</Text>
-            </View>
+            {isActive ? (
+              <View style={globalStyles.badge}>
+                <Text style={globalStyles.badgeText}>● Live Monitoring Active</Text>
+              </View>
+            ) : (
+              <View style={[globalStyles.badge, { borderColor: COLORS.textSecondary, backgroundColor: 'rgba(148, 163, 184, 0.1)' }]}>
+                <Text style={[globalStyles.badgeText, { color: COLORS.textSecondary }]}>● Event Ended</Text>
+              </View>
+            )}
 
             <View style={globalStyles.qrContainer}>
               {eventId ? (
@@ -114,8 +177,18 @@ export const HostScreen: React.FC<HostScreenProps> = ({ eventId, onNavigateToGal
               <Text style={globalStyles.buttonText}>View Shared Gallery</Text>
             </TouchableOpacity>
 
+            {isActive && (
+              <TouchableOpacity style={[globalStyles.buttonSecondary, { borderColor: COLORS.primary }]} onPress={handleEndEvent}>
+                <Text style={[globalStyles.buttonSecondaryText, { color: COLORS.primary }]}>End Event</Text>
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity style={[globalStyles.buttonSecondary, { borderColor: COLORS.danger }]} onPress={handleDeleteEvent}>
+              <Text style={[globalStyles.buttonSecondaryText, { color: COLORS.danger }]}>Delete Event & All Data</Text>
+            </TouchableOpacity>
+
             <TouchableOpacity style={globalStyles.buttonSecondary} onPress={onGoBack}>
-              <Text style={globalStyles.buttonSecondaryText}>End Host Session</Text>
+              <Text style={globalStyles.buttonSecondaryText}>Exit Dashboard</Text>
             </TouchableOpacity>
 
             <Text style={globalStyles.listHeader}>

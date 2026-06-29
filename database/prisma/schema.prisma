@@ -9,6 +9,8 @@ generator client {
 
 model Event {
   id           String        @id @default(uuid())
+  name         String        @default("Unnamed Event")
+  isActive     Boolean       @default(true)
   createdAt    DateTime      @default(now())
   participants Participant[]
   photos       Photo[]

@@ -22,9 +22,10 @@ interface Photo {
 interface GalleryScreenProps {
   eventId: string;
   onGoBack: () => void;
+  onKickToHome?: () => void;
 }
 
-export const GalleryScreen: React.FC<GalleryScreenProps> = ({ eventId, onGoBack }) => {
+export const GalleryScreen: React.FC<GalleryScreenProps> = ({ eventId, onGoBack, onKickToHome }) => {
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -136,6 +137,18 @@ export const GalleryScreen: React.FC<GalleryScreenProps> = ({ eventId, onGoBack 
         console.log('Auto-saving new incoming photo:', url);
         savePhotoToLocalGallery(url);
       }
+    });
+
+    socket.on('event-ended', () => {
+      console.log('Socket received event-ended event');
+      Alert.alert('Event Ended', 'The host has ended this event. Auto-upload of new photos is now stopped.');
+    });
+
+    socket.on('event-deleted', () => {
+      console.log('Socket received event-deleted event');
+      Alert.alert('Event Deleted', 'The host has deleted this event. You will be redirected to the Home screen.', [
+        { text: 'OK', onPress: () => { if (onKickToHome) onKickToHome(); else onGoBack(); } }
+      ]);
     });
 
     socket.on('disconnect', () => {

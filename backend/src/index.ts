@@ -47,11 +47,18 @@ app.get('/health', (req, res) => {
 
 // POST /api/events - Create an event
 app.post('/api/events', async (req, res) => {
+  const { name } = req.body;
   try {
-    const event = await prisma.event.create({ data: {} });
-    console.log(`Created Event: ${event.id}`);
+    const event = await prisma.event.create({
+      data: {
+        name: name || 'Unnamed Event'
+      }
+    });
+    console.log(`Created Event: ${event.id} - Name: ${event.name}`);
     res.status(201).json({
       id: event.id,
+      name: event.name,
+      isActive: event.isActive,
       createdAt: event.createdAt,
     });
   } catch (error: any) {
@@ -86,6 +93,7 @@ app.get('/api/events/:eventId', async (req, res) => {
 // POST /api/events/:eventId/join - Join an event as a participant
 app.post('/api/events/:eventId/join', async (req, res) => {
   const { eventId } = req.params;
+  const { name } = req.body;
   try {
     const event = await prisma.event.findUnique({
       where: { id: eventId },
@@ -96,14 +104,21 @@ app.post('/api/events/:eventId/join', async (req, res) => {
       return;
     }
 
+    if (!event.isActive) {
+      res.status(403).json({ error: 'This event has ended and is no longer active.' });
+      return;
+    }
+
     const count = await prisma.participant.count({
       where: { eventId },
     });
 
+    const participantName = name && name.trim() ? name.trim() : `Guest ${count + 1}`;
+
     const participant = await prisma.participant.create({
       data: {
         eventId,
-        name: `Guest ${count + 1}`,
+        name: participantName,
       },
     });
 
@@ -143,6 +158,11 @@ app.post('/api/events/:eventId/photos', upload.single('photo'), async (req, res)
       return;
     }
 
+    if (!event.isActive) {
+      res.status(403).json({ error: 'This event has ended. Auto-upload is stopped.' });
+      return;
+    }
+
     if (!req.file) {
       res.status(400).json({ error: 'No photo file provided' });
       return;
@@ -164,6 +184,80 @@ app.post('/api/events/:eventId/photos', upload.single('photo'), async (req, res)
   } catch (error: any) {
     console.error('Error uploading photo:', error);
     res.status(500).json({ error: 'Failed to upload photo', details: error.message });
+  }
+});
+
+// POST /api/events/:eventId/end - End the event (disable uploads/joins)
+app.post('/api/events/:eventId/end', async (req, res) => {
+  const { eventId } = req.params;
+  try {
+    const event = await prisma.event.findUnique({
+      where: { id: eventId }
+    });
+
+    if (!event) {
+      res.status(404).json({ error: 'Event not found' });
+      return;
+    }
+
+    await prisma.event.update({
+      where: { id: eventId },
+      data: { isActive: false },
+    });
+
+    console.log(`Event ended: ${eventId}`);
+    
+    // Broadcast to all participants in this event
+    io.to(eventId).emit('event-ended', { eventId });
+
+    res.json({ success: true, message: 'Event ended successfully. Automatic uploads are disabled.' });
+  } catch (error: any) {
+    console.error('Error ending event:', error);
+    res.status(500).json({ error: 'Failed to end event', details: error.message });
+  }
+});
+
+// DELETE /api/events/:eventId - Delete event and purge physical photo files from disk
+app.delete('/api/events/:eventId', async (req, res) => {
+  const { eventId } = req.params;
+  try {
+    const event = await prisma.event.findUnique({
+      where: { id: eventId },
+      include: { photos: true },
+    });
+
+    if (!event) {
+      res.status(404).json({ error: 'Event not found' });
+      return;
+    }
+
+    // 1. Delete physical files from uploads directory
+    for (const photo of event.photos) {
+      const filePath = path.join(__dirname, '../uploads', photo.imagePath);
+      try {
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+          console.log(`Deleted physical file from disk: ${filePath}`);
+        }
+      } catch (unlinkErr) {
+        console.error(`Failed to delete physical photo file ${filePath}:`, unlinkErr);
+      }
+    }
+
+    // 2. Cascade delete event from DB (cascades database photo and participant entries)
+    await prisma.event.delete({
+      where: { id: eventId },
+    });
+
+    console.log(`Deleted Event and all associated database records: ${eventId}`);
+
+    // 3. Broadcast deletion event to kick clients back to home
+    io.to(eventId).emit('event-deleted', { eventId });
+
+    res.json({ success: true, message: 'Event and all photo files deleted from server.' });
+  } catch (error: any) {
+    console.error('Error deleting event data:', error);
+    res.status(500).json({ error: 'Failed to delete event data', details: error.message });
   }
 });
 

@@ -149,4 +149,19 @@ class CameraMonitorModule(reactContext: ReactApplicationContext) : ReactContextB
         Log.d(TAG, "Auto-save preference retrieved: $enabled")
         promise.resolve(enabled)
     }
+
+    @ReactMethod
+    fun setStringPreference(key: String, value: String) {
+        val sharedPref = reactApplicationContext.getSharedPreferences("PartySharePrefs", Context.MODE_PRIVATE)
+        sharedPref.edit().putString(key, value).apply()
+        Log.d(TAG, "String preference saved: $key = $value")
+    }
+
+    @ReactMethod
+    fun getStringPreference(key: String, promise: Promise) {
+        val sharedPref = reactApplicationContext.getSharedPreferences("PartySharePrefs", Context.MODE_PRIVATE)
+        val value = sharedPref.getString(key, "") ?: ""
+        Log.d(TAG, "String preference retrieved: $key = $value")
+        promise.resolve(value)
+    }
 }

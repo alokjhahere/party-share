@@ -129,3 +129,33 @@ export async function getAutoSavePreference(): Promise<boolean> {
     return false;
   }
 }
+
+// Fallback in-memory store for non-Android platforms
+const jsMemoryPrefs: Record<string, string> = {};
+
+// Save a generic string preference
+export async function setStringPreference(key: string, value: string): Promise<void> {
+  if (Platform.OS !== 'android') {
+    jsMemoryPrefs[key] = value;
+    return;
+  }
+  try {
+    await CameraMonitor.setStringPreference(key, value);
+  } catch (error) {
+    console.error(`Failed to save string preference for ${key}:`, error);
+    jsMemoryPrefs[key] = value;
+  }
+}
+
+// Get a generic string preference
+export async function getStringPreference(key: string): Promise<string> {
+  if (Platform.OS !== 'android') {
+    return jsMemoryPrefs[key] || '';
+  }
+  try {
+    return await CameraMonitor.getStringPreference(key);
+  } catch (error) {
+    console.error(`Failed to load string preference for ${key}:`, error);
+    return jsMemoryPrefs[key] || '';
+  }
+}
